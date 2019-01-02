@@ -1,4 +1,4 @@
-#include "dvd.hh"
+#include "include/gcdvd/dvd.hh"
 
 DVDStream::DVDStream(std::string const &isoPath)
 {
