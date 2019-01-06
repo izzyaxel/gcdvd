@@ -20,7 +20,18 @@ elseif(UNIX)
 	elseif(CMAKE_BUILD_TYPE MATCHES Debug)
 		message(STATUS "Hardening disabled for debug build")
 	endif()
+elseif(APPLE)
+	add_definitions(-DOSX)
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -Wall -Wextra -Wpedantic -Wformat-security -Wno-unused")
+	if(CMAKE_BUILD_TYPE MATCHES Release)
+		set(ARCH "x86_64")
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_FORTIFY_SOURCE=2 -mmitigate-rop -fstack-protector-strong -fPIE")
+		set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,high-entropy-va")
+	elseif(CMAKE_BUILD_TYPE MATCHES Debug)
+		message(STATUS "Hardening disabled for debug build")
+	endif()
 endif()
+
 if(CMAKE_BUILD_TYPE MATCHES Release)
 	set(CMAKE_CXX_FLAGS_RELEASE "-Ofast")
 	add_definitions(-DRELEASE)
@@ -30,7 +41,9 @@ elseif(CMAKE_BUILD_TYPE MATCHES Debug)
 endif()
 
 project(gcdvd)
-add_library(${PROJECT_NAME} STATIC include/gcdvd/dvd.hh dvd.cc)
+add_library(${PROJECT_NAME} STATIC
+		dvd.cc include/gcdvd/dvd.hh
+		navigator.cc include/gcdvd/navigator.hh)
 set_target_properties(${PROJECT_NAME} PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/libs
 		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/libs
