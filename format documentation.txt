@@ -1,0 +1,73 @@
+ name                                                         size (bytes)
+
+//---------------------Table of Contents----------------------//
+ boot.bin (header)                                            1088
+ bi2.bin (header info)                                        32 + 8160 padding
+ appldr.bin (apploader)                                       28 + code size + padding
+ fst.bin (file symbol tree)                                   varies
+ binary data                                                  varies
+
+//-----------------------Disc Header--------------------------//
+ Console ID                                                   1
+ Game code                                                    2
+ Country code                                                 1
+ Maker code                                                   2
+ Disc ID                                                      1
+ Version                                                      1
+ Audio streaming flag                                         1
+ Stream buffer size                                           1
+ Padding                                                      18
+ Magic word                                                   4
+ Game name                                                    992
+ dh.bin offset                                                4
+ Address to load dh.bin                                       4
+ Padding                                                      24
+ main.dol offset                                              4
+ fst.bin offset                                               4
+ FST size                                                     4
+ Max FST size                                                 4
+ User position                                                4
+ User length                                                  4
+ Unknown                                                      4
+ Padding                                                      4
+
+//----------------Disc Header Information---------------------//
+ dh.bin size                                                  4
+ Simulated memory size                                        4
+ Argument offset                                              4
+ Debug flag                                                   4
+ Track location                                               4
+ Track size                                                   4
+ Country code                                                 4
+ Unknown                                                      4
+ Padding                                                      8160
+
+//------------------------Apploader---------------------------//
+ Date of apploader                                            10
+ Padding                                                      6
+ Apploader entry point                                        4
+ Apploader code size                                          4
+ Trailer size                                                 4
+ Apploader code                                               varies*
+ Padding                                                      varies**
+ 
+ *specified earlier in "Apploader code size"
+ **calculated as (fst.bin offset - end of apploader code)
+
+//---------------------------FST------------------------------//
+ Root directory entry                                         12
+ List of FST entries                                          12 * num entries
+ String table                                                 varies***
+
+ ***
+ 
+//-----------------------FST Entry----------------------------//
+ Flag 0: file 1: dir                                          1
+ Filename offset in str table(1)                              3
+ File offset or parent offset(2)                              4
+ File length(file) or num entries(root) or next offset(dir)   4
+
+
+(1) These 3 bytes need to be interpreted as a 24 bit integer, so they should be shifted into the lower bits of a u32, and should not be reordered from how they're read. (u32 offset = ([0] << 16) | ([1] << 8) | [2])
+
+(2) Parent offset defines the parent directory for nested directories, and is an index into the FST entries array, not a byte offset into the ISO, files are parented to the last specified directory.

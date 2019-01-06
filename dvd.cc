@@ -4,12 +4,12 @@
 #include <dir.h>
 #include <algorithm>
 
-DVDStream::DVDStream(std::string const &isoPathIn, std::string const &isoPathOut)
+Navigator navigator{""};
+
+DVDStream::DVDStream(std::string const &isoPathIn)
 {
 	this->isoStreamIn = fopen(isoPathIn.data(), "rb");
 	if(!this->isoStreamIn) return;
-	this->isoStreamOut = fopen(isoPathOut.data(), "wb");
-	if(!this->isoStreamOut) return;
 	
 	fread(&this->header, sizeof(Header), 1, this->isoStreamIn);
 	flipEndianness(this->header);
@@ -83,12 +83,11 @@ DVDStream::DVDStream(std::string const &isoPathIn, std::string const &isoPathOut
 DVDStream::~DVDStream()
 {
 	fclose(this->isoStreamIn);
-	fclose(this->isoStreamOut);
 }
 
-std::unique_ptr<DVDStream> DVDStream::create(std::string const &isoPathIn, std::string const &isoPathOut)
+std::unique_ptr<DVDStream> DVDStream::create(std::string const &isoPathIn)
 {
-	return std::make_unique<DVDStream>(isoPathIn, isoPathOut);
+	return std::make_unique<DVDStream>(isoPathIn);
 }
 
 std::vector<uint8_t> DVDStream::readFile(FSTEntry const &entry)
@@ -117,7 +116,7 @@ std::vector<uint8_t> DVDStream::readFile(std::string const &fileName)
 	return out;
 }
 
-void DVDStream::writeHeader()
+/*void DVDStream::writeHeader()
 {
 	rewind(this->isoStreamOut);
 	fwrite(reinterpret_cast<void *>(&this->header), sizeof(Header), 1, this->isoStreamOut);
@@ -130,13 +129,21 @@ void DVDStream::writeFST()
 {
 	fseek(this->isoStreamOut, static_cast<long>(this->header.fstOffset), SEEK_SET);
 	fwrite(reinterpret_cast<void const *>(&this->fst.entries[0]), sizeof(FSTEntry), 1, this->isoStreamOut);
-	//for(auto entry : this->fst.entries) fwrite(reinterpret_cast<void *>(&entry), sizeof(FSTEntry), 1, this->isoStreamOut); //TODO proper offsets
+	//for(auto entry : this->fst.entries) fwrite(reinterpret_cast<void *>(&entry), sizeof(FSTEntry), 1, this->isoStreamOut);
 	
+}*/
+
+void DVDStream::write(std::string const &isoPathOut)
+{
+	FILE *out = fopen(isoPathOut.data(), "wb");
+	if(!out) return;
+	//TODO reassemble FST, string table, data, etc
+	fclose(out);
 }
 
 void DVDStream::dumpFiles(std::string const &outPath)
 {
-	Navigator navigator{outPath};
+	navigator.set(outPath);
 	uint32_t filesCompleted = 0, total = this->fst.root.numEntries;
 	
 	for(auto const &entry : this->fst.entries)
@@ -148,15 +155,16 @@ void DVDStream::dumpFiles(std::string const &outPath)
 			auto file = this->readFile(entry);
 			if(!file.empty())
 			{
-				std::string path = navigator.get() + entry.name;
+				std::string path = navigator.get() + entry.name; //TODO not concating after root
 				printf("%s\n", path.data());
 				FILE *out = fopen(path.data(), "wb");
 				fwrite(file.data(), file.size(), 1, out);
 				fclose(out);
 			}
 		}
-		else //TODO fix nested directories
+		else
 		{
+			navigator.set(outPath);
 			std::vector<std::string> newPath;
 			newPath.emplace_back(entry.name);
 			uint32_t po = entry.parentOffset;
@@ -167,7 +175,6 @@ void DVDStream::dumpFiles(std::string const &outPath)
 				po = pEntry.parentOffset;
 			} while(po != 0);
 			std::reverse(newPath.begin(), newPath.end());
-			navigator.set(outPath);
 			for(auto const &dir : newPath) navigator.go(dir);
 			printf("New dir: %s\n", navigator.get().data());
 			mkdir(navigator.get().data());
