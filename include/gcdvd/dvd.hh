@@ -8,8 +8,9 @@
 static constexpr uint32_t fullDiscSizeBytes = 1459978240;
 static constexpr uint32_t numSectors = 712880;
 static constexpr uint32_t sectorSizeBytes = 2048; //Files must be aligned to the sectors or bad things will happen
+
 static constexpr uint32_t headerSize = 1088;
-static constexpr uint32_t headerInformationSize = 32;
+static constexpr uint32_t headerInformationSize = 8192;
 static constexpr uint32_t apploaderSize = 28;
 static constexpr uint32_t fstEntrySize = 12;
 
@@ -17,6 +18,7 @@ struct Navigator
 {
 	explicit Navigator(std::string const &path);
 	void set(std::string const &newPath);
+	void go(char const *folderName, size_t len);
 	void go(std::string &folderName);
 	void back();
 	void backto(std::string const &folderName);
@@ -74,8 +76,9 @@ struct FSTEntry
 /// File symbol tree, used to locate files in the binary blob
 struct FST
 {
-	FSTEntry root; //convenience, this is still added to entries too
+	//FSTEntry root; //convenience, this is still added to entries too
 	std::vector<FSTEntry> entries{};
+	std::vector<char> stringTable;
 };
 
 /// Call DVDStream::create() with the path to the ISO file, then check DVDStream::initialized
@@ -105,6 +108,7 @@ struct DVDStream
 	Header header{};
 	HeaderInfo headerInfo{};
 	Apploader apploader{};
+	std::vector<uint8_t> apploaderTrailer{};
 	std::vector<uint8_t> apploaderCode{};
 	std::vector<uint8_t> apploaderPadding{};
 	FST fst{};

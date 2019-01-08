@@ -52,14 +52,14 @@
  Padding                                                      varies**
  
  *specified earlier in "Apploader code size"
- **calculated as (fst.bin offset - end of apploader code)
+ **calculated as (fst offset - end of apploader code)
 
 //---------------------------FST------------------------------//
  Root directory entry                                         12
  List of FST entries                                          12 * num entries
  String table                                                 varies***
 
- ***
+ ***fst offset + (num entries * entry size) to get to the beginning, fst size - (num entries * entry size) to get the length
  
 //-----------------------FST Entry----------------------------//
  Flag 0: file 1: dir                                          1

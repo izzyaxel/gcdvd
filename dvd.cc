@@ -13,6 +13,17 @@ void Navigator::set(std::string const &newPath)
 	this->path = newPath;
 }
 
+void Navigator::go(char const *folderName, size_t len)
+{
+	if(this->path[this->path.size() - 1] != '/') this->path += '/';
+	if(folderName[len - 1] != '/')
+	{
+		this->path += folderName;
+		this->path += '/';
+	}
+	else this->path += folderName;
+}
+
 void Navigator::go(std::string &folderName)
 {
 	if(this->path[this->path.size() - 1] != '/') this->path += '/';
@@ -44,72 +55,51 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 	this->isoStreamIn = fopen(isoPathIn.data(), "rb");
 	if(!this->isoStreamIn) return;
 	
-	fread(&this->header, sizeof(Header), 1, this->isoStreamIn);
+	fread(&this->header, headerSize, 1, this->isoStreamIn);
 	flipEndianness(this->header);
 	
-	fread(&this->headerInfo, sizeof(HeaderInfo), 1, this->isoStreamIn);
+	fread(&this->headerInfo, headerInformationSize, 1, this->isoStreamIn);
 	flipEndianness(this->headerInfo);
 	
-	fread(&this->apploader, sizeof(Apploader), 1, this->isoStreamIn);
+	fread(&this->apploader, apploaderSize, 1, this->isoStreamIn);
 	flipEndianness(this->apploader);
 	
 	this->apploaderCode.resize(static_cast<size_t>(this->apploader.size));
 	fread(this->apploaderCode.data(), static_cast<long>(this->apploader.size), 1, this->isoStreamIn);
 	long apploaderEnd = ftell(this->isoStreamIn);
+	this->apploaderPadding.resize(static_cast<size_t>(this->header.fstOffset - apploaderEnd), 0);
+	fseek(this->isoStreamIn, static_cast<long>(this->apploaderPadding.size()), SEEK_CUR);
+	this->apploaderTrailer.resize(this->apploader.trailerSize);
+	fread(this->apploaderTrailer.data(), this->apploader.trailerSize, 1, this->isoStreamIn);
 	
 	fseek(this->isoStreamIn, static_cast<long>(this->header.fstOffset), SEEK_SET);
-	
-	this->apploaderPadding.resize(static_cast<size_t>(this->header.fstOffset - apploaderEnd), 0);
-	
 	{
-		long begin = ftell(this->isoStreamIn);
 		FSTEntry root{};
 		fread(&root.flag, 1, 1, this->isoStreamIn);
 		fread(&root.filenameOffset, 3, 1, this->isoStreamIn);
 		fread(&root.fileOffset, 4, 1, this->isoStreamIn);
 		fread(&root.fileLength, 4, 1, this->isoStreamIn);
 		flipEndianness(root);
-		long end = ftell(this->isoStreamIn);
-		uint32_t offset =  ((root.filenameOffset[0] << 16) | (root.filenameOffset[1] << 8) | (root.filenameOffset[2]));
-		fseek(this->isoStreamIn, static_cast<long>(this->header.fstOffset + (root.numEntries * fstEntrySize) + offset), SEEK_SET);
-		char c = ' ';
-		while(true)
-		{
-			fread(&c, 1, 1, this->isoStreamIn);
-			if(c == '\0') break;
-			root.name += c;
-		}
-		root.name = root.name.substr(1, 4);
-		fseek(this->isoStreamIn, end, SEEK_SET);
 		this->fst.entries.push_back(root);
-		this->fst.root = root;
 	}
 	
 	for(uint32_t i = 0; i < this->fst.entries[0].numEntries - 1; i++)
 	{
-		long begin = ftell(this->isoStreamIn);
 		FSTEntry entry{};
 		fread(&entry.flag, 1, 1, this->isoStreamIn);
 		fread(&entry.filenameOffset, 3, 1, this->isoStreamIn);
 		fread(&entry.fileOffset, 4, 1, this->isoStreamIn);
 		fread(&entry.fileLength, 4, 1, this->isoStreamIn);
 		flipEndianness(entry);
-		
-		long end = ftell(this->isoStreamIn);
-		uint32_t offset =  ((entry.filenameOffset[0] << 16) |
-							(entry.filenameOffset[1] << 8) |
-							(entry.filenameOffset[2]));
-		fseek(this->isoStreamIn, static_cast<long>(this->header.fstOffset + (this->fst.entries[0].numEntries * fstEntrySize) + offset), SEEK_SET);
-		char c = ' ';
-		while(true)
-		{
-			fread(&c, 1, 1, this->isoStreamIn);
-			if(c == '\0') break;
-			entry.name += c;
-		}
-		fseek(this->isoStreamIn, end, SEEK_SET);
 		this->fst.entries.push_back(entry);
 	}
+	
+	fseek(this->isoStreamIn, static_cast<long>(this->header.fstOffset + (this->fst.entries[0].numEntries * fstEntrySize)), SEEK_SET);
+	size_t strTableLen = static_cast<size_t>(this->header.fstSize - (this->fst.entries[0].numEntries * fstEntrySize));
+	this->fst.stringTable.resize(strTableLen);
+	fread(this->fst.stringTable.data(), strTableLen, 1, this->isoStreamIn);
+	for(auto &entry : this->fst.entries) entry.name = std::string{this->fst.stringTable.data() + ((entry.filenameOffset[0] << 16) | (entry.filenameOffset[1] << 8) | (entry.filenameOffset[2]))};
+	this->fst.entries[0].name = "root";
 	this->initialized = true;
 }
 
@@ -169,7 +159,66 @@ void DVDStream::writeFST()
 void DVDStream::dumpFiles(std::string const &outPath) //TODO write header to disk
 {
 	navigator.set(outPath);
-	uint32_t filesCompleted = 0, total = this->fst.root.numEntries - 1;
+	navigator.go("sys", 3);
+	mkdir(navigator.get().data());
+	printf("[0%%] - New dir: %s\n", navigator.get().data());
+	FILE *out;
+	uint32_t filesCompleted = 0, total = this->fst.entries[0].numEntries + 4;
+	{//boot.bin
+		std::string path = navigator.get() + "boot.bin";
+		out = fopen(path.data(), "wb");
+		fwrite(reinterpret_cast<void *>(&this->header), headerSize, 1, out);
+		fclose(out);
+		filesCompleted++;
+		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("%s\n", path.data());
+	}
+	
+	{//bi2.bin
+		std::string path = navigator.get() + "bi2.bin";
+		out = fopen(path.data(), "wb");
+		fwrite(reinterpret_cast<void *>(&this->headerInfo), headerInformationSize, 1, out);
+		fclose(out);
+		filesCompleted++;
+		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("%s\n", path.data());
+	}
+	
+	{//apploader.bin
+		std::string path = navigator.get() + "apploader.img";
+		out = fopen(path.data(), "wb");
+		fwrite(reinterpret_cast<void *>(&this->apploader), apploaderSize, 1, out);
+		fwrite(this->apploaderCode.data(), this->apploaderCode.size(), 1, out);
+		fwrite(this->apploaderTrailer.data(), this->apploaderTrailer.size(), 1, out);
+		fclose(out);
+		filesCompleted++;
+		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("%s\n", path.data());
+	}
+	
+	{//fst.bin
+		std::string path = navigator.get() + "fst.bin";
+		out = fopen((navigator.get() + "fst.bin").data(), "wb");
+		for(auto const &entry : this->fst.entries) fwrite(&entry.flag, 12, 1, out);
+		fwrite(this->fst.stringTable.data(), this->fst.stringTable.size(), 1, out);
+		fclose(out);
+		filesCompleted++;
+		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("%s\n", path.data());
+	}
+	
+	{//main.dol
+		std::string path = navigator.get() + "main.dol";
+		out = fopen(path.data(), "wb");
+		//TODO theres an offset to this file in the header
+		fseek(this->isoStreamIn, static_cast<long>(this->header.mainDOLOffset), SEEK_SET);
+		fclose(out);
+		filesCompleted++;
+		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("%s\n", path.data());
+	}
+	
+	navigator.set(outPath);
 	
 	for(auto const &entry : this->fst.entries)
 	{
@@ -183,7 +232,7 @@ void DVDStream::dumpFiles(std::string const &outPath) //TODO write header to dis
 				{
 					std::string path = navigator.get() + entry.name;
 					printf("%s\n", path.data());
-					FILE *out = fopen(path.data(), "wb");
+					out = fopen(path.data(), "wb");
 					fwrite(file.data(), file.size(), 1, out);
 					fclose(out);
 				}
@@ -258,6 +307,5 @@ void flipEndianness(FSTEntry &fstEntry)
 
 void flipEndianness(FST &fst)
 {
-	flipEndianness(fst.root);
 	for(auto &entry : fst.entries) flipEndianness(entry);
 }
