@@ -100,6 +100,11 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 	fread(this->fst.stringTable.data(), strTableLen, 1, this->isoStreamIn);
 	for(auto &entry : this->fst.entries) entry.name = std::string{this->fst.stringTable.data() + ((entry.filenameOffset[0] << 16) | (entry.filenameOffset[1] << 8) | (entry.filenameOffset[2]))};
 	this->fst.entries[0].name = "root";
+	
+	fseek(this->isoStreamIn, static_cast<long>(this->header.mainDOLOffset), SEEK_SET);
+	//TODO parse DOL header to find out how big it is
+	
+	
 	this->initialized = true;
 }
 
@@ -164,6 +169,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 	printf("[0%%] - New dir: %s\n", navigator.get().data());
 	FILE *out;
 	uint32_t filesCompleted = 0, total = this->fst.entries[0].numEntries + 4;
+	
 	{//boot.bin
 		std::string path = navigator.get() + "boot.bin";
 		out = fopen(path.data(), "wb");
@@ -210,9 +216,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 	{//main.dol
 		std::string path = navigator.get() + "main.dol";
 		out = fopen(path.data(), "wb");
-		fseek(this->isoStreamIn, static_cast<long>(this->header.mainDOLOffset), SEEK_SET); //TODO move this to constructor/store main.dol data in DVDStream?
-		//TODO parse DOL header to find out how big it is
-		
+		fwrite(this->mainDOL.data(), this->mainDOL.size(), 1, this->isoStreamIn);
 		fclose(out);
 		filesCompleted++;
 		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));

@@ -112,6 +112,7 @@ struct DVDStream
 	std::vector<uint8_t> apploaderCode{};
 	std::vector<uint8_t> apploaderPadding{};
 	FST fst{};
+	std::vector<uint8_t> mainDOL{};
 	bool initialized = false;
 
 private:
