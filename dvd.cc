@@ -156,7 +156,7 @@ void DVDStream::writeFST()
 	
 }*/
 
-void DVDStream::dumpFiles(std::string const &outPath) //TODO write header to disk
+void DVDStream::dumpFiles(std::string const &outPath)
 {
 	navigator.set(outPath);
 	navigator.go("sys", 3);
@@ -210,8 +210,9 @@ void DVDStream::dumpFiles(std::string const &outPath) //TODO write header to dis
 	{//main.dol
 		std::string path = navigator.get() + "main.dol";
 		out = fopen(path.data(), "wb");
-		//TODO theres an offset to this file in the header
-		fseek(this->isoStreamIn, static_cast<long>(this->header.mainDOLOffset), SEEK_SET);
+		fseek(this->isoStreamIn, static_cast<long>(this->header.mainDOLOffset), SEEK_SET); //TODO move this to constructor/store main.dol data in DVDStream?
+		//TODO parse DOL header to find out how big it is
+		
 		fclose(out);
 		filesCompleted++;
 		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
