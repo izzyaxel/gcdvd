@@ -42,8 +42,7 @@ endif()
 
 project(gcdvd)
 add_library(${PROJECT_NAME} STATIC
-		dvd.cc include/gcdvd/dvd.hh
-		navigator.cc include/gcdvd/navigator.hh)
+		dvd.cc include/gcdvd/dvd.hh)
 set_target_properties(${PROJECT_NAME} PROPERTIES
 		ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/libs
 		LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/libs

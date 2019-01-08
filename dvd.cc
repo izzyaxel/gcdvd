@@ -1,8 +1,41 @@
 #include "include/gcdvd/dvd.hh"
-#include "include/gcdvd/navigator.hh"
 
-#include <dir.h>
+#include <dir.h> //TODO mingw specific, mingw doesnt have filesystem implemented correctly yet :(
 #include <algorithm>
+
+Navigator::Navigator(std::string const &path)
+{
+	this->path = path;
+}
+
+void Navigator::set(std::string const &newPath)
+{
+	this->path = newPath;
+}
+
+void Navigator::go(std::string &folderName)
+{
+	if(this->path[this->path.size() - 1] != '/') this->path += '/';
+	if(folderName[folderName.size() - 1] != '/') this->path += folderName + '/';
+	else this->path += folderName;
+}
+
+void Navigator::back()
+{
+	this->path = this->path.substr(0, this->path.find_last_of('/'));
+}
+
+void Navigator::backto(std::string const &folderName)
+{
+	if(folderName[folderName.size() - 1] != '/') this->path = this->path.substr(0, this->path.find_last_of(folderName + '/') + (folderName.size() + 1));
+	else this->path = this->path.substr(0, this->path.find_last_of(folderName) + (folderName.size()));
+}
+
+std::string Navigator::get()
+{
+	if(this->path[this->path.size() - 1] != '/') this->path += "/";
+	return this->path;
+}
 
 Navigator navigator{""};
 
@@ -43,8 +76,8 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 		while(true)
 		{
 			fread(&c, 1, 1, this->isoStreamIn);
-			root.name += c;
 			if(c == '\0') break;
+			root.name += c;
 		}
 		root.name = root.name.substr(1, 4);
 		fseek(this->isoStreamIn, end, SEEK_SET);
@@ -52,7 +85,7 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 		this->fst.root = root;
 	}
 	
-	for(uint32_t i = 0; i < this->fst.entries[0].numEntries; i++)
+	for(uint32_t i = 0; i < this->fst.entries[0].numEntries - 1; i++)
 	{
 		long begin = ftell(this->isoStreamIn);
 		FSTEntry entry{};
@@ -71,8 +104,8 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 		while(true)
 		{
 			fread(&c, 1, 1, this->isoStreamIn);
-			entry.name += c;
 			if(c == '\0') break;
+			entry.name += c;
 		}
 		fseek(this->isoStreamIn, end, SEEK_SET);
 		this->fst.entries.push_back(entry);
@@ -133,53 +166,53 @@ void DVDStream::writeFST()
 	
 }*/
 
-void DVDStream::write(std::string const &isoPathOut)
-{
-	FILE *out = fopen(isoPathOut.data(), "wb");
-	if(!out) return;
-	//TODO reassemble FST, string table, data, etc
-	fclose(out);
-}
-
-void DVDStream::dumpFiles(std::string const &outPath)
+void DVDStream::dumpFiles(std::string const &outPath) //TODO write header to disk
 {
 	navigator.set(outPath);
-	uint32_t filesCompleted = 0, total = this->fst.root.numEntries;
+	uint32_t filesCompleted = 0, total = this->fst.root.numEntries - 1;
 	
 	for(auto const &entry : this->fst.entries)
 	{
-		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
-		
-		if(entry.flag == 0)
+		if(!entry.name.empty())
 		{
-			auto file = this->readFile(entry);
-			if(!file.empty())
+			printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+			if(entry.flag == 0)
 			{
-				std::string path = navigator.get() + entry.name; //TODO not concating after root
-				printf("%s\n", path.data());
-				FILE *out = fopen(path.data(), "wb");
-				fwrite(file.data(), file.size(), 1, out);
-				fclose(out);
+				std::vector<uint8_t> file = this->readFile(entry);
+				if(!file.empty())
+				{
+					std::string path = navigator.get() + entry.name;
+					printf("%s\n", path.data());
+					FILE *out = fopen(path.data(), "wb");
+					fwrite(file.data(), file.size(), 1, out);
+					fclose(out);
+				}
+				else printf("\nWarning: attempted to write empty file to %s\n", (navigator.get() + entry.name).data());
 			}
+			else
+			{
+				navigator.set(outPath);
+				std::vector<std::string> newPath;
+				newPath.emplace_back(entry.name);
+				uint32_t po = entry.parentOffset;
+				do
+				{
+					FSTEntry pEntry = this->fst.entries[po];
+					if(newPath.back() != pEntry.name) newPath.emplace_back(pEntry.name);
+					po = pEntry.parentOffset;
+				} while(po != 0);
+				std::reverse(newPath.begin(), newPath.end());
+				for(auto &dir : newPath) navigator.go(dir);
+				printf("New dir: %s\n", navigator.get().data());
+				mkdir(navigator.get().data());
+			}
+			filesCompleted++;
 		}
 		else
 		{
-			navigator.set(outPath);
-			std::vector<std::string> newPath;
-			newPath.emplace_back(entry.name);
-			uint32_t po = entry.parentOffset;
-			do
-			{
-				FSTEntry pEntry = this->fst.entries[po];
-				if(newPath.back() != pEntry.name) newPath.emplace_back(pEntry.name);
-				po = pEntry.parentOffset;
-			} while(po != 0);
-			std::reverse(newPath.begin(), newPath.end());
-			for(auto const &dir : newPath) navigator.go(dir);
-			printf("New dir: %s\n", navigator.get().data());
-			mkdir(navigator.get().data());
+			if(entry.flag == 0) printf("\nWarning: empty filename was encountered\n");
+			else printf("\nWarning: empty directory name was encountered\n");
 		}
-		filesCompleted++;
 	}
 }
 
@@ -225,5 +258,6 @@ void flipEndianness(FSTEntry &fstEntry)
 
 void flipEndianness(FST &fst)
 {
+	flipEndianness(fst.root);
 	for(auto &entry : fst.entries) flipEndianness(entry);
 }

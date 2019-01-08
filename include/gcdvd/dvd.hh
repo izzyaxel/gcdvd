@@ -13,6 +13,17 @@ static constexpr uint32_t headerInformationSize = 32;
 static constexpr uint32_t apploaderSize = 28;
 static constexpr uint32_t fstEntrySize = 12;
 
+struct Navigator
+{
+	explicit Navigator(std::string const &path);
+	void set(std::string const &newPath);
+	void go(std::string &folderName);
+	void back();
+	void backto(std::string const &folderName);
+	std::string get();
+private: std::string path;
+};
+
 struct Header
 {
 	uint8_t consoleID = 0;
@@ -60,10 +71,10 @@ struct FSTEntry
 	std::string name = "";
 };
 
-/// File system tree, used to locate files in the binary blob
+/// File symbol tree, used to locate files in the binary blob
 struct FST
 {
-	FSTEntry root;
+	FSTEntry root; //convenience, this is still added to entries too
 	std::vector<FSTEntry> entries{};
 };
 
@@ -86,11 +97,8 @@ struct DVDStream
 	/// Read a file by name from the binary blob
 	std::vector<uint8_t> readFile(std::string const &fileName);
 	
-	void writeHeader();
-	
-	void writeFST();
-	
-	void write(std::string const &isoPathOut);
+	//TODO think about API for rebuilding/writing ISOs
+	//void write(std::string const &isoPathOut);
 	
 	void dumpFiles(std::string const &outPath);
 	
@@ -100,7 +108,7 @@ struct DVDStream
 	std::vector<uint8_t> apploaderCode{};
 	std::vector<uint8_t> apploaderPadding{};
 	FST fst{};
-	bool initialized = false, lowMemoryMode = false;
+	bool initialized = false;
 
 private:
 	FILE *isoStreamIn = nullptr;
