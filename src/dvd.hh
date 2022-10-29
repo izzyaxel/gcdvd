@@ -8,7 +8,6 @@
 static constexpr uint32_t fullDiscSizeBytes = 1459978240;
 static constexpr uint32_t numSectors = 712880;
 static constexpr uint32_t sectorSizeBytes = 2048; //Files must be aligned to the sectors or bad things will happen
-
 static constexpr uint32_t headerSize = 1088;
 static constexpr uint32_t headerInformationSize = 8192;
 static constexpr uint32_t apploaderSize = 28;
@@ -23,7 +22,9 @@ struct Navigator
 	void back();
 	void backto(std::string const &folderName);
 	std::string get();
-private: std::string path;
+	
+private:
+	std::string path;
 };
 
 struct Header

@@ -1,6 +1,6 @@
-#include "include/gcdvd/dvd.hh"
+#include "dvd.hh"
 
-#include <dir.h> //TODO mingw specific, mingw doesnt have filesystem implemented correctly yet :(
+#include <filesystem>
 #include <algorithm>
 
 Navigator::Navigator(std::string const &path)
@@ -64,15 +64,15 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 	fread(&this->apploader, apploaderSize, 1, this->isoStreamIn);
 	flipEndianness(this->apploader);
 	
-	this->apploaderCode.resize(static_cast<size_t>(this->apploader.size));
-	fread(this->apploaderCode.data(), static_cast<long>(this->apploader.size), 1, this->isoStreamIn);
+	this->apploaderCode.resize((size_t)this->apploader.size);
+	fread(this->apploaderCode.data(), (long)this->apploader.size, 1, this->isoStreamIn);
 	long apploaderEnd = ftell(this->isoStreamIn);
-	this->apploaderPadding.resize(static_cast<size_t>(this->header.fstOffset - apploaderEnd), 0);
-	fseek(this->isoStreamIn, static_cast<long>(this->apploaderPadding.size()), SEEK_CUR);
+	this->apploaderPadding.resize((size_t)(this->header.fstOffset - apploaderEnd), 0);
+	fseek(this->isoStreamIn, (long)this->apploaderPadding.size(), SEEK_CUR);
 	this->apploaderTrailer.resize(this->apploader.trailerSize);
 	fread(this->apploaderTrailer.data(), this->apploader.trailerSize, 1, this->isoStreamIn);
 	
-	fseek(this->isoStreamIn, static_cast<long>(this->header.fstOffset), SEEK_SET);
+	fseek(this->isoStreamIn, (long)this->header.fstOffset, SEEK_SET);
 	{
 		FSTEntry root{};
 		fread(&root.flag, 1, 1, this->isoStreamIn);
@@ -94,14 +94,14 @@ DVDStream::DVDStream(std::string const &isoPathIn)
 		this->fst.entries.push_back(entry);
 	}
 	
-	fseek(this->isoStreamIn, static_cast<long>(this->header.fstOffset + (this->fst.entries[0].numEntries * fstEntrySize)), SEEK_SET);
-	size_t strTableLen = static_cast<size_t>(this->header.fstSize - (this->fst.entries[0].numEntries * fstEntrySize));
+	fseek(this->isoStreamIn, (long)(this->header.fstOffset + (this->fst.entries[0].numEntries * fstEntrySize)), SEEK_SET);
+	size_t strTableLen = (size_t)(this->header.fstSize - (this->fst.entries[0].numEntries * fstEntrySize));
 	this->fst.stringTable.resize(strTableLen);
 	fread(this->fst.stringTable.data(), strTableLen, 1, this->isoStreamIn);
 	for(auto &entry : this->fst.entries) entry.name = std::string{this->fst.stringTable.data() + ((entry.filenameOffset[0] << 16) | (entry.filenameOffset[1] << 8) | (entry.filenameOffset[2]))};
 	this->fst.entries[0].name = "root";
 	
-	fseek(this->isoStreamIn, static_cast<long>(this->header.mainDOLOffset), SEEK_SET);
+	fseek(this->isoStreamIn, (long)this->header.mainDOLOffset, SEEK_SET);
 	//TODO parse DOL header to find out how big it is
 	
 	
@@ -123,7 +123,7 @@ std::vector<uint8_t> DVDStream::readFile(FSTEntry const &entry)
 	std::vector<uint8_t> out;
 	if(entry.flag == 1) return out;
 	out.resize(entry.fileLength);
-	fseek(this->isoStreamIn, static_cast<long>(entry.fileOffset), SEEK_SET);
+	fseek(this->isoStreamIn, (long)entry.fileOffset, SEEK_SET);
 	fread(out.data(), entry.fileLength, 1, this->isoStreamIn);
 	return out;
 }
@@ -136,7 +136,7 @@ std::vector<uint8_t> DVDStream::readFile(std::string const &fileName)
 		if(entry.flag == 0 && entry.name == fileName)
 		{
 			out.resize(entry.fileLength);
-			fseek(this->isoStreamIn, static_cast<long>(entry.fileOffset), SEEK_SET);
+			fseek(this->isoStreamIn, (long)entry.fileOffset, SEEK_SET);
 			fread(out.data(), entry.fileLength, 1, this->isoStreamIn);
 			return out;
 		}
@@ -155,7 +155,7 @@ std::vector<uint8_t> DVDStream::readFile(std::string const &fileName)
 
 void DVDStream::writeFST()
 {
-	fseek(this->isoStreamOut, static_cast<long>(this->header.fstOffset), SEEK_SET);
+	fseek(this->isoStreamOut, (long)this->header.fstOffset, SEEK_SET);
 	fwrite(reinterpret_cast<void const *>(&this->fst.entries[0]), sizeof(FSTEntry), 1, this->isoStreamOut);
 	//for(auto entry : this->fst.entries) fwrite(reinterpret_cast<void *>(&entry), sizeof(FSTEntry), 1, this->isoStreamOut);
 	
@@ -163,9 +163,10 @@ void DVDStream::writeFST()
 
 void DVDStream::dumpFiles(std::string const &outPath)
 {
+	if(!this->initialized) return;
 	navigator.set(outPath);
 	navigator.go("sys", 3);
-	mkdir(navigator.get().data());
+	std::filesystem::create_directory(navigator.get());
 	printf("[0%%] - New dir: %s\n", navigator.get().data());
 	FILE *out;
 	uint32_t filesCompleted = 0, total = this->fst.entries[0].numEntries + 4;
@@ -176,7 +177,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 		fwrite(reinterpret_cast<void *>(&this->header), headerSize, 1, out);
 		fclose(out);
 		filesCompleted++;
-		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("[%u%%] - ", (uint32_t)(( (float)filesCompleted / (float)total) * 100));
 		printf("%s\n", path.data());
 	}
 	
@@ -186,7 +187,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 		fwrite(reinterpret_cast<void *>(&this->headerInfo), headerInformationSize, 1, out);
 		fclose(out);
 		filesCompleted++;
-		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("[%u%%] - ", (uint32_t)(( (float)filesCompleted / (float)total) * 100));
 		printf("%s\n", path.data());
 	}
 	
@@ -198,7 +199,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 		fwrite(this->apploaderTrailer.data(), this->apploaderTrailer.size(), 1, out);
 		fclose(out);
 		filesCompleted++;
-		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("[%u%%] - ", (uint32_t)(( (float)filesCompleted / (float)total) * 100));
 		printf("%s\n", path.data());
 	}
 	
@@ -209,7 +210,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 		fwrite(this->fst.stringTable.data(), this->fst.stringTable.size(), 1, out);
 		fclose(out);
 		filesCompleted++;
-		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("[%u%%] - ", (uint32_t)(( (float)filesCompleted / (float)total) * 100));
 		printf("%s\n", path.data());
 	}
 	
@@ -219,7 +220,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 		fwrite(this->mainDOL.data(), this->mainDOL.size(), 1, this->isoStreamIn);
 		fclose(out);
 		filesCompleted++;
-		printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+		printf("[%u%%] - ", (uint32_t)(( (float)filesCompleted / (float)total) * 100));
 		printf("%s\n", path.data());
 	}
 	
@@ -229,7 +230,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 	{
 		if(!entry.name.empty())
 		{
-			printf("[%u%%] - ", static_cast<uint32_t>((static_cast<float>(filesCompleted) / static_cast<float>(total)) * 100));
+			printf("[%u%%] - ", (uint32_t)(( (float)filesCompleted / (float)total) * 100));
 			if(entry.flag == 0)
 			{
 				std::vector<uint8_t> file = this->readFile(entry);
@@ -258,7 +259,7 @@ void DVDStream::dumpFiles(std::string const &outPath)
 				std::reverse(newPath.begin(), newPath.end());
 				for(auto &dir : newPath) navigator.go(dir);
 				printf("New dir: %s\n", navigator.get().data());
-				mkdir(navigator.get().data());
+				std::filesystem::create_directory(navigator.get());
 			}
 			filesCompleted++;
 		}
